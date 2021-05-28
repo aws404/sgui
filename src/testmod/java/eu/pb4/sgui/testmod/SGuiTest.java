@@ -1,24 +1,40 @@
 package eu.pb4.sgui.testmod;
 
+import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.context.CommandContext;
 import eu.pb4.sgui.api.ClickType;
 import eu.pb4.sgui.api.elements.*;
 import eu.pb4.sgui.api.gui.AnvilInputGui;
 import eu.pb4.sgui.api.gui.BookGui;
+import eu.pb4.sgui.api.gui.SelectionGui;
 import eu.pb4.sgui.api.gui.SimpleGui;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v1.CommandRegistrationCallback;
+import net.minecraft.block.Block;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.CreeperEntity;
+import net.minecraft.entity.mob.SkeletonEntity;
+import net.minecraft.entity.mob.ZombieEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.dedicated.MinecraftDedicatedServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.LiteralText;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Style;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
+import org.apache.logging.log4j.LogManager;
+
+import java.util.List;
+import java.util.UUID;
 
 import static net.minecraft.server.command.CommandManager.literal;
 
@@ -40,6 +56,9 @@ public class SGuiTest implements ModInitializer {
             dispatcher.register(
                     literal("test5").executes(SGuiTest::test5)
             );
+            dispatcher.register(
+                    literal("test6").executes(SGuiTest::test6)
+            );
         });
     }
 
@@ -59,8 +78,8 @@ public class SGuiTest implements ModInitializer {
             gui.setTitle(new LiteralText("Nice"));
             gui.setSlot(0, new GuiElementBuilder(Items.ARROW).setCount(100));
             gui.setSlot(1, new AnimatedGuiElement(new ItemStack[]{
-                    Items.NETHERITE_PICKAXE.getDefaultStack(),
-                    Items.DIAMOND_PICKAXE.getDefaultStack(),
+                    new GuiElementBuilder(Items.NETHERITE_PICKAXE).glow().asStack(),
+                    new GuiElementBuilder(Items.DIAMOND_PICKAXE).setDamage(100).asStack(),
                     Items.GOLDEN_PICKAXE.getDefaultStack(),
                     Items.IRON_PICKAXE.getDefaultStack(),
                     Items.STONE_PICKAXE.getDefaultStack(),
@@ -82,6 +101,12 @@ public class SGuiTest implements ModInitializer {
                 itemStack.setCount(x);
                 gui.setSlot(x, new GuiElement(itemStack, (index, clickType, actionType) -> {}));
             }
+
+            gui.setSlot(6, new GuiElementBuilder(Items.PLAYER_HEAD)
+                    .setSkullOwner(new GameProfile(UUID.fromString("f5a216d9-d660-4996-8d0f-d49053677676"), "patbox"), player.server)
+                    .setName(new LiteralText("Patbox's Head"))
+                    .glow()
+            );
 
             gui.setSlot(7, new GuiElementBuilder()
                     .setItem(Items.BARRIER)
@@ -213,6 +238,47 @@ public class SGuiTest implements ModInitializer {
             gui.setTitle(new LiteralText("Click recipes!"));
             gui.open();
 
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    // Register a global selection adaptor for SelectionGui
+    private static final SelectionGui.SelectionAdaptor<Block> BLOCK_ADAPTOR = SelectionGui.SelectionAdaptors.register(Block.class, input -> new GuiElementBuilder(input.asItem()).glow().build());
+
+    // Create a non-global selection adaptor for SelectionGui
+    private static final SelectionGui.SelectionAdaptor<LivingEntity> PLAYER_ADAPTOR = input -> {
+        if (input instanceof ServerPlayerEntity) {
+            return new GuiElementBuilder(Items.PLAYER_HEAD).setSkullOwner(((ServerPlayerEntity) input).getGameProfile(), ((ServerPlayerEntity) input).server).setName((MutableText) input.getName()).build();
+        }
+
+        Item item;
+        if (input instanceof SkeletonEntity) {
+            item = Items.SKELETON_SKULL;
+        } else if (input instanceof ZombieEntity) {
+            item = Items.ZOMBIE_HEAD;
+        } else if (input instanceof CreeperEntity) {
+            item = Items.CREEPER_HEAD;
+        } else {
+            item = Items.PLAYER_HEAD;
+        }
+
+        return new GuiElementBuilder(item).setName((MutableText) input.getName()).build();
+    };
+
+    private static int test6(CommandContext<ServerCommandSource> objectCommandContext) {
+        try {
+            ServerPlayerEntity player = objectCommandContext.getSource().getPlayer();
+            List<LivingEntity> players = objectCommandContext.getSource().getMinecraftServer().getOverworld().getEntitiesIncludingUngeneratedChunks(LivingEntity.class, player.getBoundingBox().expand(50));
+
+            SelectionGui<LivingEntity> gui = new SelectionGui<>(player, players, PLAYER_ADAPTOR, (clickType, selection) -> {
+                player.teleport(selection.getX(), selection.getY(), selection.getZ());
+                player.sendMessage(new LiteralText("Whoosh!"), false);
+            });
+
+            gui.setTitle(new LiteralText("Select a mob to teleport to:"));
+            gui.open();
         } catch (Exception e) {
             e.printStackTrace();
         }
